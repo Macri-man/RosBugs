@@ -19,16 +19,17 @@ void groundTruth(const  nav_msgs::Odometry::ConstPtr& ground);
 bool isFacinglocation();
 void facingLocation();
 
-double globalLocal(double angle);
-
-bool runTillobsticle();
-
 void followWall();
 
+int distanceFromclosest();
 int distanceFromtarget();
 double bearing();
 bool done();
 bool obsticle();
+void move();
+
+bool isClosest();
+bool isFarthest();
 
 typedef struct Position{
 	int x;
@@ -39,7 +40,7 @@ typedef struct Robot{
 	bool followWall;
 	bool followLeft;
 	bool followRight;
-	bool inCorner;
+	bool around;
 	int x;
 	int y;
 	double head;
@@ -60,9 +61,14 @@ Position endPos;
 Robot robo;
 Obsticle obst;
 
+Position closestPos;
+Position hitWallPos;
+
 nav_msgs::Odometry ground;
 sensor_msgs::LaserScan laser;
 geometry_msgs::Twist base_cmd;
+
+bool inCircle(Position pos);
 
 void read(std::istream &in){
 	in >> endPos.x;
@@ -107,9 +113,10 @@ void groundTruth(const  nav_msgs::Odometry::ConstPtr& ground){
 	robo.y=yPos;
 	robo.head=yaw;
 
-	fprintf(stderr,"Robo x:%d y:%d head:%f tf:%f\n",robo.x,robo.y,robo.head,yaw);
+	fprintf(stderr,"Robo x:%d y:%d head:%f\n",robo.x,robo.y,robo.head);
 	std::cout << std::boolalpha << "robo.followLeft:" << robo.followLeft <<"\n";
 	std::cout << std::boolalpha << "robo.followRight:" << robo.followRight << "\n";
+	std::cout << std::boolalpha << "around:" << robo.around << "\n";
 }
 
 double bearing(){
@@ -139,6 +146,22 @@ int distanceFromtarget(){
 	return sqrt(((endPos.x-robo.x)*(endPos.x-robo.x))+((endPos.y-robo.y)*(endPos.y-robo.y)));
 }
 
+int distanceFromclosest(){
+	return sqrt(((endPos.x-closestPos.x)*(endPos.x-closestPos.x))+((endPos.y-closestPos.y)*(endPos.y-closestPos.y)));
+}
+
+bool isClosest(){
+	return (distanceFromclosest()>distanceFromtarget());
+}
+
+bool isFarthest(){
+	return (distanceFromclosest()<distanceFromtarget());
+}
+
+bool inCircle(Position pos){
+	return ((robo.x-pos.x)*(robo.x-pos.x))+((robo.y-pos.y)*(robo.y-pos.y))<=1;
+}
+
 bool obsticle(){
 		if(isFacingLocation() && obst.front<=1){
 			if(obst.left < obst.right){
@@ -146,6 +169,10 @@ bool obsticle(){
 			}else{
 				robo.followRight=true;
 			}
+			closestPos.x=robo.x;
+			closestPos.y=robo.y;
+			hitWallPos.x=robo.x;
+			hitWallPos.y=robo.y;
 			return true;
 		}
 }
@@ -171,8 +198,17 @@ void move(){
 
 void followWall(){
 	fprintf(stderr,"FOLLOWINGWALL\n");
+	std::cout << "ClosestPos x:" << closestPos.x << "\n";
+	std::cout << "ClosestPos y:" << closestPos.y << "\n";
+	if((isFarthest()) && inCircle(hitWallPos)){
+		robo.around=true;
+	}
+	if(isClosest()){
+		closestPos.x=robo.x;
+		closestPos.y=robo.y;
+	}
 	if(robo.followLeft){
-		if(isFacingLocation() && obst.front>distanceFromtarget()){
+		if(robo.around && inCircle(closestPos)){
 				robo.followLeft=false;
 				robo.followWall=false;
 				base_cmd.angular.z=0.5;
@@ -194,7 +230,7 @@ void followWall(){
 			base_cmd.angular.z=0.25;
 		}
 	}else if(robo.followRight){
-		if(isFacingLocation() && obst.front>distanceFromtarget()){
+		if(robo.around && inCircle(closestPos)){
 				robo.followRight=false;
 				robo.followWall=false;
 				base_cmd.angular.z=-0.5;
@@ -219,26 +255,6 @@ void followWall(){
 		base_cmd.linear.x=1;
 		robo.followWall=false;
 	}
-	
-	/*
-	if(obst.left <=1){
-		base_cmd.angular.z=-0.25;
-	}else if(obst.left <=.5){
-		base_cmd.angular.z=-0.5;
-	}else if(obst.right <=1){
-		base_cmd.angular.z=0.25;
-	}else if(obst.right <=.5){
-		base_cmd.angular.z=.5;
-	}else if(obst.front<=1 && obst.left<=1){
-	 	base_cmd.angular.z=-0.1;	
-	}else if(obst.front<=1 && obst.right<=1){
-		base_cmd.angular.z=0.1;
-	}else if(obst.front>=2 && obst.right>=2 && obst.left>=2){
-		robo.followWall=false;
-		base_cmd.linear.x=1;
-	}else{
-		base_cmd.linear.x=1;
-	}*/
 }
 
 int main(int argc, char **argv){
@@ -260,7 +276,7 @@ int main(int argc, char **argv){
 	robo.followLeft=false;
 	robo.followRight=false;
 
-	std::cout << "What are the cooridnate you want the robot to go too (x,y).\n";
+	std::cout << "What are the cooridnate you want the robot to go too x,y.\n";
 	read(std::cin);
 	/// The main loop will run at a rate of 10Hz, i.e., 10 times per second.
 	ros::Rate loop_rate(10);
@@ -281,7 +297,7 @@ int main(int argc, char **argv){
 			move();
 		}
 		if(done()){
-			std::cout << "BUG Zero COMPLETE\n";
+			std::cout << "BUG One COMPLETE\n";
 			break;
 		}
 		/// Here's where we publish the actual message.
